@@ -1,0 +1,13 @@
+# 참고용. 실제 운영은 scripts/run.sh (호스트 실행) 을 권장합니다.
+# 구독 인증(claude login) 크리덴셜이 호스트에 저장되어 있어 호스트 실행이 가장 단순합니다.
+services:
+  voice-notes:
+    build: .
+    container_name: voice-notes
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Seoul
+    volumes:
+      - ./outputs:/app/outputs
