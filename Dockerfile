@@ -14,7 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN useradd --create-home appuser
+RUN useradd --create-home appuser \
+    && mkdir -p /app/inbox /app/outputs /app/processing /app/processed /app/failed \
+    && chown -R appuser:appuser /app
 USER appuser
 
 CMD ["python", "-m", "src.main"]

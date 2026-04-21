@@ -1,7 +1,9 @@
 """storage.py — 경로 구성/메타 파일 단위 테스트."""
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from src.storage import (
     build_paths,
@@ -11,11 +13,19 @@ from src.storage import (
     write_meta,
 )
 
+TZ = ZoneInfo("Asia/Seoul")
 
-def test_build_paths_uses_file_id_and_ext(tmp_path: Path) -> None:
-    paths = build_paths(tmp_path, "FABC123", "m4a")
-    assert paths.root.parent.parent == tmp_path
-    assert paths.root.name == "FABC123"
+
+def _fixed_now() -> datetime:
+    return datetime(2026, 4, 21, 14, 30, 15, tzinfo=TZ)
+
+
+def test_build_paths_uses_date_time_and_slug(tmp_path: Path) -> None:
+    paths = build_paths(tmp_path, "meeting notes", "m4a", now=_fixed_now())
+    assert paths.root.parent == tmp_path / "2026-04-21"
+    # HHMMSS-<slug>
+    assert paths.root.name.startswith("143015-")
+    assert "meeting" in paths.root.name
     assert paths.original.name == "original.m4a"
     assert paths.transcript.name == "transcript.txt"
     assert paths.detailed.name == "detailed.md"
@@ -23,30 +33,32 @@ def test_build_paths_uses_file_id_and_ext(tmp_path: Path) -> None:
     assert paths.meta.name == "meta.json"
 
 
-def test_build_paths_strips_leading_dot(tmp_path: Path) -> None:
-    paths = build_paths(tmp_path, "F1", ".webm")
+def test_build_paths_strips_leading_dot_and_lowercases(tmp_path: Path) -> None:
+    paths = build_paths(tmp_path, "clip", ".WEBM", now=_fixed_now())
     assert paths.original.name == "original.webm"
 
 
 def test_build_paths_defaults_to_bin_when_no_ext(tmp_path: Path) -> None:
-    paths = build_paths(tmp_path, "F1", "")
+    paths = build_paths(tmp_path, "clip", "", now=_fixed_now())
     assert paths.original.name == "original.bin"
 
 
-def test_exists_complete_requires_three_files(tmp_path: Path) -> None:
-    paths = build_paths(tmp_path, "F1", "m4a")
-    ensure_dir(paths.root)
-    assert paths.exists_complete() is False
-    paths.transcript.write_text("t", encoding="utf-8")
-    paths.detailed.write_text("d", encoding="utf-8")
-    assert paths.exists_complete() is False
-    paths.summary.write_text("s", encoding="utf-8")
-    assert paths.exists_complete() is True
+def test_build_paths_slugifies_unsafe_chars(tmp_path: Path) -> None:
+    paths = build_paths(tmp_path, "2026/04/21 회의 @금요일", "m4a", now=_fixed_now())
+    # 슬래시/특수문자 제거, 한글은 유지
+    assert "/" not in paths.root.name
+    assert "@" not in paths.root.name
+    assert "회의" in paths.root.name
+
+
+def test_build_paths_slug_falls_back_when_empty(tmp_path: Path) -> None:
+    paths = build_paths(tmp_path, "@@@", "m4a", now=_fixed_now())
+    assert paths.root.name.endswith("-audio")
 
 
 def test_write_and_read_meta_roundtrip(tmp_path: Path) -> None:
-    paths = build_paths(tmp_path, "F1", "m4a")
-    data = {"file_id": "F1", "language": "ko", "duration_seconds": 12.5}
+    paths = build_paths(tmp_path, "clip", "m4a", now=_fixed_now())
+    data = {"source_filename": "clip.m4a", "language": "ko", "duration_seconds": 12.5}
     write_meta(paths.meta, data)
     loaded = read_meta(paths.meta)
     assert loaded == data
@@ -54,6 +66,13 @@ def test_write_and_read_meta_roundtrip(tmp_path: Path) -> None:
 
 def test_read_meta_returns_none_for_missing(tmp_path: Path) -> None:
     assert read_meta(tmp_path / "nope.json") is None
+
+
+def test_ensure_dir_is_idempotent(tmp_path: Path) -> None:
+    target = tmp_path / "a" / "b" / "c"
+    ensure_dir(target)
+    ensure_dir(target)
+    assert target.is_dir()
 
 
 def test_format_duration() -> None:

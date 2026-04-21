@@ -33,6 +33,10 @@ Thumbs.db
 *.swp
 
 # 프로젝트 산출물 (오디오 + 전사 결과)
+inbox/
 outputs/
+processing/
+processed/
+failed/
 models/
 logs/

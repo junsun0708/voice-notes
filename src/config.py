@@ -22,9 +22,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 @dataclass(frozen=True)
 class Config:
-    slack_bot_token: str
-    slack_app_token: str
-    slack_channel_id: str
+    inbox_dir: Path
+    output_dir: Path
+    processing_dir: Path
+    processed_dir: Path | None   # None 이면 처리 후 원본 삭제
+    failed_dir: Path
 
     whisper_model: str = "large-v3"
     # "auto" 면 자동 감지. 그 외에는 ISO 639-1 코드 (ko, en, ja...).
@@ -33,7 +35,9 @@ class Config:
     # Claude CLI 구독 인증 사용. api_key 불필요.
     anthropic_model: str = "sonnet"
 
-    output_dir: Path = PROJECT_ROOT / "outputs"
+    # 파일 크기 안정화 체크 (watch 모드): 이 간격마다 size 비교, stable_checks 회 연속 같으면 시작.
+    stable_poll_seconds: float = 1.0
+    stable_checks: int = 3
 
     @property
     def whisper_language_or_none(self) -> str | None:
@@ -44,44 +48,46 @@ class Config:
         return lang
 
 
+def _resolve_dir(raw: str, default: str) -> Path:
+    value = (raw or "").strip() or default
+    path = Path(value)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return path
+
+
 def load_config() -> Config:
     env_file = _find_env_file()
     if env_file:
         load_dotenv(env_file)
 
-    slack_bot_token = os.environ.get("SLACK_BOT_TOKEN", "").strip()
-    slack_app_token = os.environ.get("SLACK_APP_TOKEN", "").strip()
-    slack_channel_id = os.environ.get("SLACK_CHANNEL_ID", "").strip()
+    inbox = _resolve_dir(os.environ.get("INBOX_DIR", ""), "inbox")
+    output = _resolve_dir(os.environ.get("OUTPUT_DIR", ""), "outputs")
+    processing = _resolve_dir(os.environ.get("PROCESSING_DIR", ""), "processing")
+    failed = _resolve_dir(os.environ.get("FAILED_DIR", ""), "failed")
 
-    missing: list[str] = []
-    if not slack_bot_token:
-        missing.append("SLACK_BOT_TOKEN")
-    if not slack_app_token:
-        missing.append("SLACK_APP_TOKEN")
-    if not slack_channel_id:
-        missing.append("SLACK_CHANNEL_ID")
-
-    if missing:
-        raise EnvironmentError(
-            f"필수 환경 변수 누락: {', '.join(missing)}. "
-            f".env.example 을 .env 로 복사해 값을 채워 주세요."
-        )
-
-    output_dir_raw = os.environ.get("OUTPUT_DIR", "").strip() or "outputs"
-    output_path = Path(output_dir_raw)
-    if not output_path.is_absolute():
-        output_path = PROJECT_ROOT / output_path
+    processed_raw = (os.environ.get("PROCESSED_DIR", "") or "").strip()
+    if processed_raw.lower() == "none":
+        processed: Path | None = None
+    else:
+        processed = _resolve_dir(processed_raw, "processed")
 
     return Config(
-        slack_bot_token=slack_bot_token,
-        slack_app_token=slack_app_token,
-        slack_channel_id=slack_channel_id,
+        inbox_dir=inbox,
+        output_dir=output,
+        processing_dir=processing,
+        processed_dir=processed,
+        failed_dir=failed,
         whisper_model=os.environ.get("WHISPER_MODEL", "large-v3").strip() or "large-v3",
         whisper_language=os.environ.get("WHISPER_LANGUAGE", "auto").strip() or "auto",
         anthropic_model=os.environ.get("ANTHROPIC_MODEL", "sonnet").strip() or "sonnet",
-        output_dir=output_path,
     )
 
 
 # Claude CLI timeout (상세/요약 각각). large-v3 전사 텍스트가 길 수 있으므로 넉넉히.
 CLAUDE_TIMEOUT_SECONDS = 600
+
+# 지원 오디오 확장자.
+AUDIO_EXTENSIONS: frozenset[str] = frozenset(
+    {"mp3", "m4a", "wav", "flac", "ogg", "opus", "webm", "mp4", "mpga", "mpeg", "aac"}
+)

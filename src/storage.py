@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -15,30 +16,34 @@ TIMEZONE = ZoneInfo("Asia/Seoul")
 
 @dataclass(frozen=True)
 class OutputPaths:
-    root: Path                  # outputs/<YYYY-MM-DD>/<file_id>/
+    root: Path                  # outputs/<YYYY-MM-DD>/<HHMMSS-slug>/
     original: Path              # original.<ext>
     transcript: Path            # transcript.txt
     detailed: Path              # detailed.md
     summary: Path               # summary.md
     meta: Path                  # meta.json
 
-    def exists_complete(self) -> bool:
-        """세 결과물이 모두 생성되어 있으면 True (idempotent 체크)."""
-        return (
-            self.transcript.is_file()
-            and self.detailed.is_file()
-            and self.summary.is_file()
-        )
+
+def _slugify(name: str) -> str:
+    """파일 stem 을 안전한 디렉토리명으로 변환."""
+    cleaned = re.sub(r"[^\w가-힣.-]+", "-", name, flags=re.UNICODE).strip("-.")
+    return cleaned[:60] or "audio"
 
 
-def build_paths(output_root: Path, file_id: str, original_ext: str) -> OutputPaths:
-    """outputs/<YYYY-MM-DD>/<file_id>/ 아래 경로 세트를 구성.
-
-    original_ext는 점을 포함하든 안 하든 모두 허용.
-    """
-    date_str = datetime.now(TIMEZONE).strftime("%Y-%m-%d")
-    ext = original_ext.lstrip(".") or "bin"
-    root = output_root / date_str / file_id
+def build_paths(
+    output_root: Path,
+    stem: str,
+    original_ext: str,
+    *,
+    now: datetime | None = None,
+) -> OutputPaths:
+    """outputs/<YYYY-MM-DD>/<HHMMSS>-<slug>/ 아래 경로 세트를 구성."""
+    moment = now or datetime.now(TIMEZONE)
+    date_str = moment.strftime("%Y-%m-%d")
+    ts_str = moment.strftime("%H%M%S")
+    ext = original_ext.lstrip(".").lower() or "bin"
+    slug = _slugify(stem)
+    root = output_root / date_str / f"{ts_str}-{slug}"
     return OutputPaths(
         root=root,
         original=root / f"original.{ext}",

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# voice-notes 상시 구동 스크립트 (Socket Mode 리스너).
+# voice-notes 상시 구동 스크립트 (inbox 폴더 watch 모드).
 # nohup / tmux / systemd 중 원하는 방식으로 이 스크립트를 실행하면 된다.
 set -euo pipefail
 

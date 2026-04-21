@@ -10,4 +10,8 @@ services:
     environment:
       - TZ=Asia/Seoul
     volumes:
+      - ./inbox:/app/inbox
       - ./outputs:/app/outputs
+      - ./processing:/app/processing
+      - ./processed:/app/processed
+      - ./failed:/app/failed
