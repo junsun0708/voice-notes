@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,10 +16,11 @@ _MODEL_CACHE: dict[str, Any] = {}
 
 
 def _ensure_ffmpeg_on_path() -> None:
-    """imageio_ffmpeg.get_ffmpeg_exe() 경로의 디렉토리를 PATH 앞에 삽입.
+    """imageio-ffmpeg 바이너리를 Whisper 가 찾을 수 있는 `ffmpeg` 이름으로 PATH 에 노출.
 
-    Whisper 는 내부적으로 `ffmpeg` 를 서브프로세스로 호출하므로 PATH 에서
-    찾아야 한다. 시스템 ffmpeg 가 없어도 정적 바이너리로 동작하도록 앞쪽에 prepend.
+    imageio-ffmpeg 배포 바이너리는 `ffmpeg-linux-x86_64-vX.Y.Z` 처럼 버전 접미사가 붙어 있어
+    Whisper 의 `subprocess.run(["ffmpeg", ...])` 가 PATH 룩업에 실패한다. 임시 디렉토리에
+    `ffmpeg` 이름의 심볼릭 링크를 만들어 그 디렉토리를 PATH 앞에 prepend.
     """
     global _FFMPEG_PATH_INJECTED
     if _FFMPEG_PATH_INJECTED:
@@ -27,12 +29,32 @@ def _ensure_ffmpeg_on_path() -> None:
         import imageio_ffmpeg  # noqa: WPS433 (런타임 import)
 
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        ffmpeg_dir = os.path.dirname(ffmpeg_exe)
+        shim_dir = Path(tempfile.gettempdir()) / "voice-notes-ffmpeg"
+        shim_dir.mkdir(parents=True, exist_ok=True)
+        shim_path = shim_dir / "ffmpeg"
+
+        # 기존 링크가 있고 대상이 바뀌었으면 갱신
+        needs_link = True
+        if shim_path.is_symlink():
+            try:
+                if os.readlink(shim_path) == ffmpeg_exe:
+                    needs_link = False
+                else:
+                    shim_path.unlink()
+            except OSError:
+                shim_path.unlink(missing_ok=True)
+        elif shim_path.exists():
+            shim_path.unlink()
+
+        if needs_link:
+            os.symlink(ffmpeg_exe, shim_path)
+
         current_path = os.environ.get("PATH", "")
         parts = current_path.split(os.pathsep) if current_path else []
-        if ffmpeg_dir not in parts:
-            os.environ["PATH"] = os.pathsep.join([ffmpeg_dir] + parts)
-        logger.info("ffmpeg PATH 주입: %s", ffmpeg_exe)
+        shim_dir_str = str(shim_dir)
+        if shim_dir_str not in parts:
+            os.environ["PATH"] = os.pathsep.join([shim_dir_str] + parts)
+        logger.info("ffmpeg shim 준비: %s → %s", shim_path, ffmpeg_exe)
     except Exception:
         logger.exception("imageio-ffmpeg 경로 주입 실패 — 시스템 ffmpeg 에 의존합니다")
     _FFMPEG_PATH_INJECTED = True
